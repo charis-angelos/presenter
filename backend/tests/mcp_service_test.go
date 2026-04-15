@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"strings"
 	"testing"
 
 	"intelligent-presenter-backend/internal/services"
@@ -62,37 +63,23 @@ func TestMCPService_ProjectDataValidation(t *testing.T) {
 			name:      "Whitespace project ID",
 			projectID: "   ",
 			token:     "valid-token",
-			valid:     true, // Current implementation doesn't trim whitespace
+			valid:     false,
 		},
 		{
 			name:      "Whitespace token",
 			projectID: "123",
 			token:     "   ",
-			valid:     true, // Current implementation doesn't trim whitespace
+			valid:     false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Enhanced validation logic
-			projectIDValid := len(tc.projectID) > 0 && len(tc.projectID) == len(tc.projectID)
-			tokenValid := len(tc.token) > 0 && len(tc.token) == len(tc.token)
-			
-			// Trim whitespace for validation
-			projectIDTrimmed := tc.projectID
-			tokenTrimmed := tc.token
-			if len(projectIDTrimmed) > 0 {
-				projectIDTrimmed = tc.projectID // In real implementation, would use strings.TrimSpace
-			}
-			if len(tokenTrimmed) > 0 {
-				tokenTrimmed = tc.token // In real implementation, would use strings.TrimSpace
-			}
-			
-			isValid := len(projectIDTrimmed) > 0 && len(tokenTrimmed) > 0 && 
-				projectIDValid && tokenValid
-			
+			projectIDTrimmed := strings.TrimSpace(tc.projectID)
+			tokenTrimmed := strings.TrimSpace(tc.token)
+			isValid := len(projectIDTrimmed) > 0 && len(tokenTrimmed) > 0
 			if isValid != tc.valid {
-				t.Errorf("Expected validity %v, got %v for projectID='%s', token='%s'", 
+				t.Errorf("Expected validity %v, got %v for projectID='%s', token='%s'",
 					tc.valid, isValid, tc.projectID, tc.token)
 			}
 		})

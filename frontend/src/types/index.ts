@@ -38,46 +38,6 @@ export interface Project {
 }
 
 /**
- * Union type defining the available slide themes for presentation generation.
- * Each theme focuses on a specific aspect of project management and analysis,
- * generating tailored content based on Backlog project data.
- * 
- * @typedef {string} SlideTheme
- * 
- * Available themes:
- * - `project_overview`: Basic project information, goals, and team structure
- * - `project_progress`: Completion rates, milestone tracking, and timeline analysis
- * - `issue_management`: Issue statistics, priority distribution, and resolution metrics
- * - `risk_analysis`: Risk identification, mitigation strategies, and impact assessment
- * - `team_collaboration`: Team activities, communication patterns, and productivity metrics
- * - `document_management`: Wiki usage, documentation coverage, and knowledge sharing
- * - `codebase_activity`: Development metrics, code quality, and repository statistics
- * - `notifications`: Communication efficiency, alert patterns, and engagement metrics
- * - `predictive_analysis`: Forecasts, trend analysis, and future planning insights
- * - `summary_plan`: Project summary, lessons learned, and next steps
- * 
- * @example
- * ```typescript
- * const selectedThemes: SlideTheme[] = [
- *   'project_overview',
- *   'issue_management',
- *   'team_collaboration'
- * ]
- * ```
- */
-export type SlideTheme = 
-  | 'project_overview'
-  | 'project_progress' 
-  | 'issue_management'
-  | 'risk_analysis'
-  | 'team_collaboration'
-  | 'document_management'
-  | 'codebase_activity'
-  | 'notifications'
-  | 'predictive_analysis'
-  | 'summary_plan'
-
-/**
  * Re-export all authentication-related types from the auth module.
  * This includes user information, authentication responses, and OAuth interfaces.
  * 

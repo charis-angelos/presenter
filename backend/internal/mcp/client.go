@@ -240,6 +240,12 @@ func (c *MCPClient) sendRequest(ctx context.Context, request MCPRequest) (*MCPRe
 		c.sessionID = sessionID
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		var body bytes.Buffer
+		body.ReadFrom(resp.Body)
+		return nil, fmt.Errorf("MCP server returned HTTP %d: %s", resp.StatusCode, body.String())
+	}
+
 	var mcpResponse MCPResponse
 	if err := json.NewDecoder(resp.Body).Decode(&mcpResponse); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)

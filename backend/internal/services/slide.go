@@ -140,149 +140,68 @@ func (s *SlideService) getProjectDataForTheme(projectID string, theme models.Sli
 	data := make(map[string]interface{})
 	fmt.Printf("Getting project data for theme: %s, projectID: %s\n", theme, projectID)
 
+	fetch := func(key string, fn func(string, string) (interface{}, error)) error {
+		result, err := fn(projectID, backlogToken)
+		if err != nil {
+			return err
+		}
+		data[key] = result
+		return nil
+	}
+
 	switch theme {
 	case models.ThemeProjectOverview:
-		fmt.Printf("Fetching project overview...\n")
-		overview, err := s.mcpService.GetProjectOverview(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project overview: %v\n", err)
-			return nil, err
-		}
-		data["overview"] = overview
-		fmt.Printf("Project overview fetched successfully\n")
+		return data, fetch("overview", s.mcpService.GetProjectOverview)
 
 	case models.ThemeProjectProgress:
-		fmt.Printf("Fetching project progress...\n")
-		progress, err := s.mcpService.GetProjectProgress(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project progress: %v\n", err)
-			return nil, err
-		}
-		data["progress"] = progress
-		fmt.Printf("Project progress fetched successfully\n")
+		return data, fetch("progress", s.mcpService.GetProjectProgress)
 
 	case models.ThemeIssueManagement:
-		fmt.Printf("Fetching project issues...\n")
-		issues, err := s.mcpService.GetProjectIssues(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project issues: %v\n", err)
-			return nil, err
-		}
-		data["issues"] = issues
-		fmt.Printf("Project issues fetched successfully\n")
-
-	case models.ThemeTeamCollaboration:
-		fmt.Printf("Fetching project team...\n")
-		team, err := s.mcpService.GetProjectTeam(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project team: %v\n", err)
-			// For team collaboration, use fallback data when API fails
-			fmt.Printf("Using fallback team data for team collaboration slide\n")
-			data["team"] = map[string]interface{}{
-				"users": []map[string]interface{}{
-					{"name": "プロジェクトメンバー", "role": "開発者"},
-				},
-				"fallback": true,
-				"error": "API access limited - using sample data",
-			}
-		} else {
-			data["team"] = team
-		}
-		fmt.Printf("Project team data prepared successfully\n")
+		return data, fetch("issues", s.mcpService.GetProjectIssues)
 
 	case models.ThemeRiskAnalysis:
-		fmt.Printf("Fetching project risks...\n")
-		risks, err := s.mcpService.GetProjectRisks(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project risks: %v\n", err)
-			return nil, err
-		}
-		data["risks"] = risks
-		fmt.Printf("Project risks fetched successfully\n")
+		return data, fetch("risks", s.mcpService.GetProjectRisks)
 
-	case models.ThemeDocumentManagement:
-		fmt.Printf("Fetching project documents...\n")
-		// Get Wiki and document information
-		overview, err := s.mcpService.GetProjectOverview(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project overview for documents: %v\n", err)
-			return nil, err
+	case models.ThemeTeamCollaboration:
+		if err := fetch("team", s.mcpService.GetProjectTeam); err != nil {
+			fmt.Printf("Failed to get project team, using fallback: %v\n", err)
+			data["team"] = map[string]interface{}{
+				"users":    []map[string]interface{}{{"name": "プロジェクトメンバー", "role": "開発者"}},
+				"fallback": true,
+				"error":    "API access limited - using sample data",
+			}
 		}
-		data["overview"] = overview
-		data["focus"] = "documents"
-		fmt.Printf("Project documents fetched successfully\n")
 
-	case models.ThemeCodebaseActivity:
-		fmt.Printf("Fetching project codebase activity...\n")
-		// Get Git repository and development activity information
-		overview, err := s.mcpService.GetProjectOverview(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project overview for codebase: %v\n", err)
+	case models.ThemeDocumentManagement, models.ThemeCodebaseActivity, models.ThemeNotifications:
+		focusMap := map[models.SlideTheme]string{
+			models.ThemeDocumentManagement: "documents",
+			models.ThemeCodebaseActivity:   "codebase",
+			models.ThemeNotifications:      "notifications",
+		}
+		if err := fetch("overview", s.mcpService.GetProjectOverview); err != nil {
 			return nil, err
 		}
-		data["overview"] = overview
-		data["focus"] = "codebase"
-		fmt.Printf("Project codebase activity fetched successfully\n")
-
-	case models.ThemeNotifications:
-		fmt.Printf("Fetching project notifications...\n")
-		// Get notification and communication information
-		overview, err := s.mcpService.GetProjectOverview(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project overview for notifications: %v\n", err)
-			return nil, err
-		}
-		data["overview"] = overview
-		data["focus"] = "notifications"
-		fmt.Printf("Project notifications fetched successfully\n")
+		data["focus"] = focusMap[theme]
 
 	case models.ThemePredictiveAnalysis:
-		fmt.Printf("Fetching project data for predictive analysis...\n")
-		// Get project progress and issues for predictive analysis
-		progress, err := s.mcpService.GetProjectProgress(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project progress for prediction: %v\n", err)
+		if err := fetch("progress", s.mcpService.GetProjectProgress); err != nil {
 			return nil, err
 		}
-		issues, err2 := s.mcpService.GetProjectIssues(projectID, backlogToken)
-		if err2 != nil {
-			fmt.Printf("Failed to get project issues for prediction: %v\n", err2)
-			return nil, err2
+		if err := fetch("issues", s.mcpService.GetProjectIssues); err != nil {
+			return nil, err
 		}
-		data["progress"] = progress
-		data["issues"] = issues
 		data["focus"] = "prediction"
-		fmt.Printf("Project data for predictive analysis fetched successfully\n")
 
 	case models.ThemeSummaryPlan:
-		fmt.Printf("Fetching comprehensive project data for summary...\n")
-		// Get comprehensive data for summary and planning
-		overview, err := s.mcpService.GetProjectOverview(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get project overview for summary: %v\n", err)
+		if err := fetch("overview", s.mcpService.GetProjectOverview); err != nil {
 			return nil, err
 		}
-		progress, err2 := s.mcpService.GetProjectProgress(projectID, backlogToken)
-		if err2 != nil {
-			fmt.Printf("Failed to get project progress for summary: %v\n", err2)
-			// Non-critical, continue with overview only
-			progress = nil
-		}
-		data["overview"] = overview
-		data["progress"] = progress
+		// Progress is non-critical for summary — ignore error
+		_ = fetch("progress", s.mcpService.GetProjectProgress)
 		data["focus"] = "summary"
-		fmt.Printf("Comprehensive project data for summary fetched successfully\n")
 
 	default:
-		fmt.Printf("Using default theme, fetching project overview...\n")
-		// For other themes, get general project data
-		overview, err := s.mcpService.GetProjectOverview(projectID, backlogToken)
-		if err != nil {
-			fmt.Printf("Failed to get default project overview: %v\n", err)
-			return nil, err
-		}
-		data["overview"] = overview
-		fmt.Printf("Default project overview fetched successfully\n")
+		return data, fetch("overview", s.mcpService.GetProjectOverview)
 	}
 
 	fmt.Printf("Project data collection completed for theme: %s\n", theme)

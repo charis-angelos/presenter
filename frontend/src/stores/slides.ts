@@ -51,6 +51,7 @@ export const useSlidesStore = defineStore('slides', () => {
   const isGenerating = ref(false)
   const isStreamingComplete = ref(false)
   const websocketConnected = ref(false)
+  const generationError = ref<string | null>(null)
   const expectedTotalSlides = ref(10) // Default to 10 slides
   const slideGenerationStatus = ref<Map<number, 'pending' | 'generating' | 'completed'>>(new Map())
   const expectedThemes = ref<SlideTheme[]>([]) // Store the original themes order
@@ -120,6 +121,8 @@ export const useSlidesStore = defineStore('slides', () => {
       slideGenerationStatus.value.set(0, 'generating')
     }
 
+    generationError.value = null
+
     try {
       const response = await slideApi.generateSlides(request)
       currentSlideId.value = response.slideId
@@ -130,6 +133,7 @@ export const useSlidesStore = defineStore('slides', () => {
       return response
     } catch (error) {
       isGenerating.value = false
+      generationError.value = error instanceof Error ? error.message : String(error)
       throw error
     }
   }
@@ -151,6 +155,7 @@ export const useSlidesStore = defineStore('slides', () => {
       onError: (error) => {
         console.error('WebSocket error:', error)
         websocketConnected.value = false
+        generationError.value = 'WebSocket connection error'
       }
     })
   }
@@ -178,6 +183,7 @@ export const useSlidesStore = defineStore('slides', () => {
       case 'error':
         console.error('Slide generation error:', data.data)
         isGenerating.value = false
+        generationError.value = data.data?.message ?? 'Slide generation failed'
         break
     }
   }
@@ -337,6 +343,7 @@ export const useSlidesStore = defineStore('slides', () => {
     currentSlideIndex.value = 0
     isGenerating.value = false
     isStreamingComplete.value = false
+    generationError.value = null
     expectedTotalSlides.value = 10
     expectedThemes.value = []
     websocketService.disconnect()
@@ -353,6 +360,7 @@ export const useSlidesStore = defineStore('slides', () => {
     isGenerating,
     isStreamingComplete,
     websocketConnected,
+    generationError,
     canStartPresentation,
     currentSlideStatus,
     isCurrentSlideGenerating,

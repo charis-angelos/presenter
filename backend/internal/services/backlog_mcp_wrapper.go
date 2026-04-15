@@ -152,7 +152,7 @@ func (w *BacklogMCPWrapper) handleMessages() {
 		// Broadcast to all sessions
 		w.sessionMux.RLock()
 		for _, session := range w.sessions {
-			session.respMutex.RLock()
+			session.respMutex.Lock()
 			if ch, ok := session.responses[response.ID]; ok {
 				select {
 				case ch <- &response:
@@ -160,7 +160,7 @@ func (w *BacklogMCPWrapper) handleMessages() {
 				}
 				delete(session.responses, response.ID)
 			}
-			session.respMutex.RUnlock()
+			session.respMutex.Unlock()
 		}
 		w.sessionMux.RUnlock()
 	}

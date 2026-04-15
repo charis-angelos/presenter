@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"intelligent-presenter-backend/pkg/config"
@@ -81,11 +82,7 @@ func (s *BedrockService) GenerateText(prompt string) (string, error) {
 }
 
 func (s *BedrockService) isClaudeMessagesModel() bool {
-	modelID := s.config.BedrockModelID
-	return modelID == "anthropic.claude-3-haiku-20240307-v1:0" ||
-		   modelID == "anthropic.claude-3-sonnet-20240229-v1:0" ||
-		   modelID == "anthropic.claude-3-opus-20240229-v1:0" ||
-		   modelID == "anthropic.claude-3-5-sonnet-20240620-v1:0"
+	return strings.Contains(s.config.BedrockModelID, "claude-3")
 }
 
 func (s *BedrockService) generateWithMessages(prompt string) (string, error) {

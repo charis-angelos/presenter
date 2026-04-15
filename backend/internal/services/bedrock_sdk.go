@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"intelligent-presenter-backend/pkg/config"
 
@@ -93,7 +92,3 @@ func (s *BedrockSDKService) GenerateText(prompt string) (string, error) {
 	return response.Content[0].Text, nil
 }
 
-func (s *BedrockSDKService) isClaudeMessagesModel() bool {
-	modelID := s.config.BedrockModelID
-	return strings.Contains(modelID, "claude-3")
-}

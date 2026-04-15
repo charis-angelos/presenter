@@ -27,6 +27,8 @@ import type { Project } from '@/types'
  * - Automatic authentication token injection
  * - Response error handling
  */
+let isRedirectingToLogin = false
+
 const api: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
   timeout: 30000,
@@ -69,8 +71,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid, redirect to login
+    if (error.response?.status === 401 && !isRedirectingToLogin) {
+      isRedirectingToLogin = true
       localStorage.removeItem('auth_token')
       window.location.href = '/login'
     }
