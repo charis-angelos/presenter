@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -98,12 +99,8 @@ func NewAuthHandler(cfg *config.Config) *AuthHandler {
 }
 
 func (h *AuthHandler) InitiateOAuth(c *gin.Context) {
-	fmt.Printf("=== InitiateOAuth called ===\n")
+	slog.Debug("InitiateOAuth called")
 	state := h.generateJWTState()
-	
-	// Debug logging
-	fmt.Printf("Generated JWT state: %s\n", state)
-	
 	authURL := h.oauthConfig.AuthCodeURL(state)
 	
 	c.JSON(http.StatusOK, gin.H{
@@ -115,10 +112,9 @@ func (h *AuthHandler) InitiateOAuth(c *gin.Context) {
 func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
-	
-	// Debug logging
-	fmt.Printf("Received callback - code: %s, state: %s\n", code, state)
-	
+
+	slog.Debug("received OAuth callback", "code_length", len(code), "state_length", len(state))
+
 	if code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Authorization code not provided",
@@ -136,15 +132,15 @@ func (h *AuthHandler) HandleCallback(c *gin.Context) {
 	
 	// Validate JWT state token
 	if !h.validateJWTState(state) {
-		fmt.Printf("JWT state validation failed for state: %s\n", state)
+		slog.Warn("JWT state validation failed")
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Invalid or expired state parameter",
 		})
 		return
 	}
-	
-	fmt.Printf("JWT state validation successful for state: %s\n", state)
-	
+
+	slog.Debug("JWT state validation successful")
+
 	// Exchange code for token
 	token, err := h.oauthConfig.Exchange(context.Background(), code)
 	if err != nil {
@@ -265,8 +261,8 @@ func generateRandomState() string {
 
 // JWT-based state generation (stateless, survives container restarts)
 func (h *AuthHandler) generateJWTState() string {
-	fmt.Printf("JWT Secret length: %d\n", len(h.config.JWTSecret))
-	
+	slog.Debug("generating JWT state", "secret_length", len(h.config.JWTSecret))
+
 	// Create claims for the state token
 	claims := jwt.MapClaims{
 		"iat": time.Now().Unix(),
@@ -281,12 +277,12 @@ func (h *AuthHandler) generateJWTState() string {
 	// Sign token with JWT secret
 	tokenString, err := token.SignedString([]byte(h.config.JWTSecret))
 	if err != nil {
-		fmt.Printf("JWT signing failed: %v\n", err)
+		slog.Error("JWT signing failed", "error", err)
 		// Fallback to random state if JWT fails
 		return generateRandomState()
 	}
-	
-	fmt.Printf("Generated JWT token length: %d\n", len(tokenString))
+
+	slog.Debug("JWT state generated", "token_length", len(tokenString))
 	return tokenString
 }
 

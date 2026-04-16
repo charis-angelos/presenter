@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -53,15 +54,15 @@ func NewSlideHandler(cfg *config.Config) *SlideHandler {
 func (h *SlideHandler) GenerateSlides(c *gin.Context) {
 	var req models.SlideGenerationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fmt.Printf("JSON binding error: %v\n", err)
+		slog.Error("JSON binding error", "error", err)
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request format",
+			"error":   "Invalid request format",
 			"details": err.Error(),
 		})
 		return
 	}
-	
-	fmt.Printf("Received request: ProjectID=%s, Language=%s, Themes=%v\n", req.ProjectID, req.Language, req.Themes)
+
+	slog.Info("received slide generation request", "projectID", req.ProjectID, "language", req.Language, "themes", req.Themes)
 
 	// Validate themes
 	if len(req.Themes) == 0 {

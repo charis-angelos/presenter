@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -169,27 +170,27 @@ func (s *BedrockService) callBedrock(jsonData []byte) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	fmt.Printf("Making Bedrock API call to model: %s\n", s.config.BedrockModelID)
-	
+	slog.Debug("making Bedrock API call", "model", s.config.BedrockModelID)
+
 	resp, err := s.client.Do(req)
 	if err != nil {
-		fmt.Printf("Bedrock API call error: %v\n", err)
+		slog.Error("Bedrock API call error", "error", err)
 		return nil, fmt.Errorf("failed to call Bedrock API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		fmt.Printf("Bedrock API error - Status: %d\n", resp.StatusCode)
+		slog.Error("Bedrock API error", "status", resp.StatusCode)
 		var errorBytes bytes.Buffer
 		errorBytes.ReadFrom(resp.Body)
-		fmt.Printf("Bedrock error response: %s\n", errorBytes.String())
+		slog.Debug("Bedrock error response body", "body", errorBytes.String())
 		return nil, fmt.Errorf("Bedrock API returned status %d", resp.StatusCode)
 	}
 
 	var responseBody bytes.Buffer
 	responseBody.ReadFrom(resp.Body)
-	
-	fmt.Printf("Bedrock API call successful\n")
+
+	slog.Debug("Bedrock API call successful")
 	return responseBody.Bytes(), nil
 }
 

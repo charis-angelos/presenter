@@ -15,7 +15,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -43,14 +43,24 @@ import (
 //
 // The server listens for SIGINT and SIGTERM signals for clean shutdown.
 func main() {
+	// Initialize structured JSON logging
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	// Load environment variables from .env file if available
 	// Falls back to system environment variables if .env is not found
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
+		slog.Info("no .env file found, using environment variables")
 	}
 
 	// Load application configuration from environment variables
 	cfg := config.Load()
+
+	// Warn about any missing required configuration fields
+	if missing := cfg.Validate(); len(missing) > 0 {
+		for _, field := range missing {
+			slog.Warn("missing required configuration", "field", field)
+		}
+	}
 
 	// Note: In Docker mode, MCP servers run in separate containers
 	// The MCP service will be initialized when needed by handlers
@@ -94,9 +104,10 @@ func main() {
 
 	// Start HTTP server in a separate goroutine to allow for graceful shutdown
 	go func() {
-		log.Printf("Server starting on port %s", cfg.Port)
+		slog.Info("server starting", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+			slog.Error("failed to start server", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -105,16 +116,17 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	slog.Info("shutting down server")
 
 	// Perform graceful shutdown with a 30-second timeout
 	// Allows ongoing requests to complete before forcing shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown:", err)
+		slog.Error("server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("Server exited")
+	slog.Info("server exited")
 }

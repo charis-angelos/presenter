@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -19,89 +20,54 @@ import (
 // It integrates with multiple AI providers (OpenAI, AWS Bedrock) and
 // supports various slide themes and content types.
 type SlideService struct {
-	config            *config.Config        // Application configuration
-	mcpService        *MCPService          // MCP service for Backlog data access
-	bedrockService    *BedrockService      // AWS Bedrock service (custom implementation)
-	bedrockSDKService *BedrockSDKService   // AWS Bedrock service (SDK implementation)
+	config            *config.Config
+	mcpService        *MCPService
+	bedrockService    *BedrockService
+	bedrockSDKService *BedrockSDKService
 }
 
 // NewSlideService creates a new instance of SlideService with the provided configuration.
-// It initializes connections to AI services and MCP services for data retrieval.
-// The service automatically falls back between different AI providers if one fails.
 func NewSlideService(cfg *config.Config) *SlideService {
-	// Try to create AWS SDK service, fallback to custom implementation if it fails
 	var bedrockSDKService *BedrockSDKService
 	if cfg.AWSAccessKeyID != "" && cfg.AWSSecretAccessKey != "" {
 		if sdkService, err := NewBedrockSDKService(cfg); err == nil {
 			bedrockSDKService = sdkService
 		} else {
-			fmt.Printf("Failed to create Bedrock SDK service, falling back to custom implementation: %v\n", err)
+			slog.Warn("Failed to create Bedrock SDK service, falling back to custom implementation", "error", err)
 		}
 	}
 
 	return &SlideService{
-		config:         cfg,
-		mcpService:     NewMCPService(cfg),
-		bedrockService: NewBedrockService(cfg),
+		config:            cfg,
+		mcpService:        NewMCPService(cfg),
+		bedrockService:    NewBedrockService(cfg),
 		bedrockSDKService: bedrockSDKService,
 	}
 }
 
-// GenerateSlideContent creates a complete slide with both markdown and HTML content
-// for the specified project, theme, and language. This is the main entry point
-// for slide generation and includes data retrieval, AI content generation,
-// and HTML compilation.
-//
-// Parameters:
-//   - projectID: The Backlog project identifier
-//   - theme: The slide theme (e.g., project_overview, progress, etc.)
-//   - language: Target language for content generation ("ja" or "en")
-//   - backlogToken: Authentication token for Backlog API access
-//
-// Returns:
-//   - *models.SlideContent: Complete slide with markdown and HTML content
-//   - error: Any error that occurred during generation
+// GenerateSlideContent creates a complete slide with markdown content
+// for the specified project, theme, and language.
 func (s *SlideService) GenerateSlideContent(projectID string, theme models.SlideTheme, language, backlogToken string) (*models.SlideContent, error) {
-	// Get project data based on theme
 	projectData, err := s.getProjectDataForTheme(projectID, theme, backlogToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project data: %w", err)
 	}
 
-	// Generate markdown content using OpenAI
 	markdown, title, err := s.generateMarkdownContent(projectData, theme, language)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate markdown: %w", err)
 	}
 
-	// // Generate HTML from markdown using LLM
-	// html, err := s.generateHTMLFromMarkdown(markdown, title, language)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to generate HTML: %w", err)
-	// }
-
 	return &models.SlideContent{
 		Theme:       theme,
 		Title:       title,
 		Markdown:    markdown,
-		// HTML:        html,
 		GeneratedAt: time.Now(),
 	}, nil
 }
 
-// GenerateSlideNarration creates spoken narration text for a slide
-// using AI-powered natural language generation. The narration is optimized
-// for text-to-speech synthesis and presentation delivery.
-//
-// Parameters:
-//   - slide: The slide content to generate narration for
-//   - language: Target language for narration ("ja" or "en")
-//
-// Returns:
-//   - *models.SlideNarration: Generated narration with timing information
-//   - error: Any error that occurred during generation
+// GenerateSlideNarration creates spoken narration text for a slide.
 func (s *SlideService) GenerateSlideNarration(slide *models.SlideContent, language string) (*models.SlideNarration, error) {
-	// Generate narration text using OpenAI
 	narrationText, err := s.generateNarrationText(slide.Markdown, slide.Title, language)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate narration: %w", err)
@@ -115,19 +81,16 @@ func (s *SlideService) GenerateSlideNarration(slide *models.SlideContent, langua
 }
 
 func (s *SlideService) GenerateSlideAudio(narration *models.SlideNarration) (*models.SlideAudio, error) {
-	// Use MCP Speech service to synthesize audio
 	audioURL, err := s.mcpService.SynthesizeSpeech(narration.Text, narration.Language, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to synthesize speech: %w", err)
 	}
 
-	// Estimate duration based on text length (rough calculation)
-	// Average speaking rate is about 150-160 words per minute
 	wordCount := len(strings.Fields(narration.Text))
 	if wordCount < 1 {
 		wordCount = 1
 	}
-	duration := (wordCount * 60) / 150 // seconds
+	duration := (wordCount * 60) / 150
 
 	return &models.SlideAudio{
 		SlideIndex: narration.SlideIndex,
@@ -138,7 +101,7 @@ func (s *SlideService) GenerateSlideAudio(narration *models.SlideNarration) (*mo
 
 func (s *SlideService) getProjectDataForTheme(projectID string, theme models.SlideTheme, backlogToken string) (map[string]interface{}, error) {
 	data := make(map[string]interface{})
-	fmt.Printf("Getting project data for theme: %s, projectID: %s\n", theme, projectID)
+	slog.Debug("getting project data", "theme", theme, "projectID", projectID)
 
 	fetch := func(key string, fn func(string, string) (interface{}, error)) error {
 		result, err := fn(projectID, backlogToken)
@@ -164,7 +127,7 @@ func (s *SlideService) getProjectDataForTheme(projectID string, theme models.Sli
 
 	case models.ThemeTeamCollaboration:
 		if err := fetch("team", s.mcpService.GetProjectTeam); err != nil {
-			fmt.Printf("Failed to get project team, using fallback: %v\n", err)
+			slog.Warn("failed to get project team, using fallback data", "error", err)
 			data["team"] = map[string]interface{}{
 				"users":    []map[string]interface{}{{"name": "プロジェクトメンバー", "role": "開発者"}},
 				"fallback": true,
@@ -196,7 +159,6 @@ func (s *SlideService) getProjectDataForTheme(projectID string, theme models.Sli
 		if err := fetch("overview", s.mcpService.GetProjectOverview); err != nil {
 			return nil, err
 		}
-		// Progress is non-critical for summary — ignore error
 		_ = fetch("progress", s.mcpService.GetProjectProgress)
 		data["focus"] = "summary"
 
@@ -204,75 +166,47 @@ func (s *SlideService) getProjectDataForTheme(projectID string, theme models.Sli
 		return data, fetch("overview", s.mcpService.GetProjectOverview)
 	}
 
-	fmt.Printf("Project data collection completed for theme: %s\n", theme)
+	slog.Debug("project data collection completed", "theme", theme)
 	return data, nil
 }
 
 func (s *SlideService) generateMarkdownContent(projectData map[string]interface{}, theme models.SlideTheme, language string) (string, string, error) {
 	prompt := s.buildPromptForTheme(projectData, theme, language)
 
-	// Call AI API based on provider
-	var response string
-	var err error
-	
-	fmt.Printf("Using AI provider: %s\n", s.config.AIProvider)
-	
-	switch s.config.AIProvider {
-	case "bedrock":
-		response, err = s.callBedrock(prompt)
-		// Auto-fallback to OpenAI if Bedrock fails
-		if err != nil {
-			fmt.Printf("Bedrock API failed: %v, falling back to OpenAI\n", err)
-			response, err = s.callOpenAI(prompt)
-			if err != nil {
-				fmt.Printf("OpenAI fallback also failed: %v\n", err)
-				return "", "", err
-			}
-			fmt.Printf("OpenAI fallback successful\n")
-		}
-	case "openai":
-		response, err = s.callOpenAI(prompt)
-	default:
-		// Default to OpenAI if not specified
-		response, err = s.callOpenAI(prompt)
-	}
-	
+	slog.Debug("calling AI provider", "provider", s.config.AIProvider)
+	response, err := s.generateText(prompt)
 	if err != nil {
-		fmt.Printf("AI API call failed: %v\n", err)
 		return "", "", err
 	}
 
-	// Define theme-specific default titles
 	themeDefaultTitles := map[models.SlideTheme]string{
-		models.ThemeProjectOverview:     "プロジェクト概要",
-		models.ThemeProjectProgress:     "プロジェクト進捗",
-		models.ThemeIssueManagement:     "課題管理",
-		models.ThemeRiskAnalysis:        "リスク分析",
-		models.ThemeTeamCollaboration:   "チーム協力",
-		models.ThemeDocumentManagement:  "ドキュメント管理",
-		models.ThemeCodebaseActivity:    "コードベース活動",
-		models.ThemeNotifications:       "通知管理",
-		models.ThemePredictiveAnalysis:  "予測分析",
-		models.ThemeSummaryPlan:         "総括と計画",
+		models.ThemeProjectOverview:    "プロジェクト概要",
+		models.ThemeProjectProgress:    "プロジェクト進捗",
+		models.ThemeIssueManagement:    "課題管理",
+		models.ThemeRiskAnalysis:       "リスク分析",
+		models.ThemeTeamCollaboration:  "チーム協力",
+		models.ThemeDocumentManagement: "ドキュメント管理",
+		models.ThemeCodebaseActivity:   "コードベース活動",
+		models.ThemeNotifications:      "通知管理",
+		models.ThemePredictiveAnalysis: "予測分析",
+		models.ThemeSummaryPlan:        "総括と計画",
 	}
 
 	themeDefaultTitlesEN := map[models.SlideTheme]string{
-		models.ThemeProjectOverview:     "Project Overview",
-		models.ThemeProjectProgress:     "Project Progress",
-		models.ThemeIssueManagement:     "Issue Management",
-		models.ThemeRiskAnalysis:        "Risk Analysis",
-		models.ThemeTeamCollaboration:   "Team Collaboration",
-		models.ThemeDocumentManagement:  "Document Management",
-		models.ThemeCodebaseActivity:    "Codebase Activity",
-		models.ThemeNotifications:       "Notifications",
-		models.ThemePredictiveAnalysis:  "Predictive Analysis",
-		models.ThemeSummaryPlan:         "Summary & Plan",
+		models.ThemeProjectOverview:    "Project Overview",
+		models.ThemeProjectProgress:    "Project Progress",
+		models.ThemeIssueManagement:    "Issue Management",
+		models.ThemeRiskAnalysis:       "Risk Analysis",
+		models.ThemeTeamCollaboration:  "Team Collaboration",
+		models.ThemeDocumentManagement: "Document Management",
+		models.ThemeCodebaseActivity:   "Codebase Activity",
+		models.ThemeNotifications:      "Notifications",
+		models.ThemePredictiveAnalysis: "Predictive Analysis",
+		models.ThemeSummaryPlan:        "Summary & Plan",
 	}
 
-	// Extract title and markdown from response
 	lines := strings.Split(response, "\n")
-	
-	// Set default title based on theme and language
+
 	var title string
 	if language == "ja" {
 		if defaultTitle, exists := themeDefaultTitles[theme]; exists {
@@ -287,17 +221,14 @@ func (s *SlideService) generateMarkdownContent(projectData map[string]interface{
 			title = "Project Slide"
 		}
 	}
-	
+
 	markdown := response
 
-	// Look for title in first line if it starts with #
 	if len(lines) > 0 && strings.HasPrefix(lines[0], "#") {
-		extractedTitle := strings.TrimSpace(strings.TrimPrefix(lines[0], "#"))
-		fmt.Printf("AI generated title: '%s' for theme: %s\n", extractedTitle, theme)
-		title = extractedTitle
+		title = strings.TrimSpace(strings.TrimPrefix(lines[0], "#"))
+		slog.Debug("AI generated title", "title", title, "theme", theme)
 	} else {
-		fmt.Printf("No # title found, using default title: '%s' for theme: %s\n", title, theme)
-		fmt.Printf("First line of AI response: '%s'\n", lines[0])
+		slog.Debug("no # title in AI response, using default", "title", title, "theme", theme)
 	}
 
 	return markdown, title, nil
@@ -334,60 +265,60 @@ Requirements:
 Narration:`, markdown)
 	}
 
-	// Use the same AI provider as for content generation with fallback
+	return s.generateText(prompt)
+}
+
+// generateText calls the configured AI provider with automatic fallback.
+// If Bedrock is the primary provider and fails, it falls back to OpenAI.
+func (s *SlideService) generateText(prompt string) (string, error) {
 	switch s.config.AIProvider {
 	case "bedrock":
 		response, err := s.callBedrock(prompt)
-		// Auto-fallback to OpenAI if Bedrock fails
 		if err != nil {
-			fmt.Printf("Bedrock narration API failed: %v, falling back to OpenAI\n", err)
+			slog.Warn("Bedrock API failed, falling back to OpenAI", "error", err)
 			response, err = s.callOpenAI(prompt)
 			if err != nil {
-				fmt.Printf("OpenAI narration fallback also failed: %v\n", err)
 				return "", err
 			}
-			fmt.Printf("OpenAI narration fallback successful\n")
+			slog.Info("OpenAI fallback successful")
 		}
-		return response, err
-	case "openai":
-		return s.callOpenAI(prompt)
+		return response, nil
 	default:
 		return s.callOpenAI(prompt)
 	}
 }
 
 func (s *SlideService) buildPromptForTheme(projectData map[string]interface{}, theme models.SlideTheme, language string) string {
-	// Limit the data size to prevent context overflow
 	dataJSON, _ := json.Marshal(projectData)
-	if len(dataJSON) > 8000 { // Limit to ~8KB to keep under token limits
+	if len(dataJSON) > 8000 {
 		dataJSON = dataJSON[:8000]
-		dataJSON = append(dataJSON, []byte("...}")...) // Close JSON properly
+		dataJSON = append(dataJSON, []byte("...}")...)
 	}
 
 	themePrompts := map[models.SlideTheme]string{
-		models.ThemeProjectOverview: `プロジェクトの概要と基本情報のスライドを生成してください。プロジェクト名、目的、期間、チーム構成などを含めてください。`,
-		models.ThemeProjectProgress: `プロジェクトの進捗状況のスライドを生成してください。完了率、マイルストーン、現在の状況などを含めてください。`,
-		models.ThemeIssueManagement: `プロジェクトの課題管理状況のスライドを生成してください。未解決の課題、優先度分布、進行中のタスクなどを含めてください。`,
-		models.ThemeRiskAnalysis: `プロジェクトのリスク分析のスライドを生成してください。潜在的なリスク、遅延要因、対策などを含めてください。`,
-		models.ThemeTeamCollaboration: `チームの協力状況のスライドを生成してください。メンバー構成、役割分担、コミュニケーション状況などを含めてください。`,
+		models.ThemeProjectOverview:    `プロジェクトの概要と基本情報のスライドを生成してください。プロジェクト名、目的、期間、チーム構成などを含めてください。`,
+		models.ThemeProjectProgress:    `プロジェクトの進捗状況のスライドを生成してください。完了率、マイルストーン、現在の状況などを含めてください。`,
+		models.ThemeIssueManagement:    `プロジェクトの課題管理状況のスライドを生成してください。未解決の課題、優先度分布、進行中のタスクなどを含めてください。`,
+		models.ThemeRiskAnalysis:       `プロジェクトのリスク分析のスライドを生成してください。潜在的なリスク、遅延要因、対策などを含めてください。`,
+		models.ThemeTeamCollaboration:  `チームの協力状況のスライドを生成してください。メンバー構成、役割分担、コミュニケーション状況などを含めてください。`,
 		models.ThemeDocumentManagement: `プロジェクトの文書管理状況のスライドを生成してください。文書数、更新頻度、アクセス状況、知識共有などを含めてください。`,
-		models.ThemeCodebaseActivity: `プロジェクトの開発活動のスライドを生成してください。コミット数、開発者活動量、コード品質指標、リリース頻度などを含めてください。`,
-		models.ThemeNotifications: `プロジェクトのコミュニケーション状況のスライドを生成してください。通知数、応答率、情報伝達効率、重要通知の処理状況などを含めてください。`,
+		models.ThemeCodebaseActivity:   `プロジェクトの開発活動のスライドを生成してください。コミット数、開発者活動量、コード品質指標、リリース頻度などを含めてください。`,
+		models.ThemeNotifications:      `プロジェクトのコミュニケーション状況のスライドを生成してください。通知数、応答率、情報伝達効率、重要通知の処理状況などを含めてください。`,
 		models.ThemePredictiveAnalysis: `プロジェクトの予測分析のスライドを生成してください。完了予測日、リスク発生確率、必要リソース予測、目標達成可能性などを含めてください。`,
-		models.ThemeSummaryPlan: `プロジェクトの総括・計画のスライドを生成してください。主要成果、KPI達成状況、残課題、次期計画の要点などを含めてください。`,
+		models.ThemeSummaryPlan:        `プロジェクトの総括・計画のスライドを生成してください。主要成果、KPI達成状況、残課題、次期計画の要点などを含めてください。`,
 	}
 
 	themePromptsEN := map[models.SlideTheme]string{
-		models.ThemeProjectOverview: "Generate a slide for project overview and basic information. Include project name, purpose, duration, team composition, etc.",
-		models.ThemeProjectProgress: "Generate a slide for project progress status. Include completion rate, milestones, current status, etc.",
-		models.ThemeIssueManagement: "Generate a slide for project issue management status. Include unresolved issues, priority distribution, ongoing tasks, etc.",
-		models.ThemeRiskAnalysis: "Generate a slide for project risk analysis. Include potential risks, delay factors, countermeasures, etc.",
-		models.ThemeTeamCollaboration: "Generate a slide for team collaboration status. Include member composition, role assignments, communication status, etc.",
+		models.ThemeProjectOverview:    "Generate a slide for project overview and basic information. Include project name, purpose, duration, team composition, etc.",
+		models.ThemeProjectProgress:    "Generate a slide for project progress status. Include completion rate, milestones, current status, etc.",
+		models.ThemeIssueManagement:    "Generate a slide for project issue management status. Include unresolved issues, priority distribution, ongoing tasks, etc.",
+		models.ThemeRiskAnalysis:       "Generate a slide for project risk analysis. Include potential risks, delay factors, countermeasures, etc.",
+		models.ThemeTeamCollaboration:  "Generate a slide for team collaboration status. Include member composition, role assignments, communication status, etc.",
 		models.ThemeDocumentManagement: "Generate a slide for project document management status. Include document count, update frequency, access status, knowledge sharing, etc.",
-		models.ThemeCodebaseActivity: "Generate a slide for project development activity. Include commit count, developer activity levels, code quality metrics, release frequency, etc.",
-		models.ThemeNotifications: "Generate a slide for project communication status. Include notification count, response rate, information transmission efficiency, important notification processing status, etc.",
+		models.ThemeCodebaseActivity:   "Generate a slide for project development activity. Include commit count, developer activity levels, code quality metrics, release frequency, etc.",
+		models.ThemeNotifications:      "Generate a slide for project communication status. Include notification count, response rate, information transmission efficiency, important notification processing status, etc.",
 		models.ThemePredictiveAnalysis: "Generate a slide for project predictive analysis. Include predicted completion date, risk occurrence probability, required resource forecast, goal achievement feasibility, etc.",
-		models.ThemeSummaryPlan: "Generate a slide for project summary and planning. Include key achievements, KPI achievement status, remaining issues, key points of next plan, etc.",
+		models.ThemeSummaryPlan:        "Generate a slide for project summary and planning. Include key achievements, KPI achievement status, remaining issues, key points of next plan, etc.",
 	}
 
 	var themePrompt string
@@ -413,7 +344,7 @@ func (s *SlideService) buildPromptForTheme(projectData map[string]interface{}, t
    - Chart.jsグラフ（必要に応じて）
 5. 箇条書きを多用し、読みやすく構成
 6. 数値や結果を強調
-7. Mermaidを使用する場合は ` + "```" + `mermaid で始めること
+7. Mermaidを使用する場合は `+"```"+`mermaid で始めること
 8. **重要**: 冗長な説明は避け、核心的な情報のみ記載
 
 スライド内容:`, themePrompt, string(dataJSON))
@@ -437,7 +368,7 @@ Requirements:
    - Chart.js graphs (when appropriate)
 5. Use bullet points for readability
 6. Emphasize numbers and results
-7. For Mermaid, use ` + "```" + `mermaid code blocks
+7. For Mermaid, use `+"```"+`mermaid code blocks
 8. **Important**: Avoid verbose explanations, focus on core information only
 9. **Important**: Only generate one slide
 10. **Important**: Use a compact layout
@@ -459,40 +390,39 @@ func (s *SlideService) callOpenAI(prompt string) (string, error) {
 				"content": prompt,
 			},
 		},
-		"max_tokens":  800, // Reduced to prevent context overflow
+		"max_tokens":  800,
 		"temperature": 0.7,
 	}
 
 	jsonData, err := json.Marshal(requestBody)
 	if err != nil {
-		fmt.Printf("OpenAI request marshal error: %v\n", err)
+		slog.Error("OpenAI request marshal error", "error", err)
 		return "", err
 	}
 
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
 	if err != nil {
-		fmt.Printf("OpenAI request creation error: %v\n", err)
+		slog.Error("OpenAI request creation error", "error", err)
 		return "", err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+s.config.OpenAIAPIKey)
 
-	fmt.Printf("Making OpenAI API call...\n")
+	slog.Debug("making OpenAI API call")
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("OpenAI API call error: %v\n", err)
+		slog.Error("OpenAI API call error", "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		fmt.Printf("OpenAI API error - Status: %d\n", resp.StatusCode)
-		// Read error response
+		slog.Error("OpenAI API error", "status", resp.StatusCode)
 		var errorBytes bytes.Buffer
 		errorBytes.ReadFrom(resp.Body)
-		fmt.Printf("OpenAI error response: %s\n", errorBytes.String())
+		slog.Debug("OpenAI error response body", "body", errorBytes.String())
 		return "", fmt.Errorf("OpenAI API returned status %d", resp.StatusCode)
 	}
 
@@ -509,21 +439,21 @@ func (s *SlideService) callOpenAI(prompt string) (string, error) {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		fmt.Printf("OpenAI response decode error: %v\n", err)
+		slog.Error("OpenAI response decode error", "error", err)
 		return "", err
 	}
 
 	if response.Error.Message != "" {
-		fmt.Printf("OpenAI API error: %s (%s)\n", response.Error.Message, response.Error.Type)
+		slog.Error("OpenAI API error", "message", response.Error.Message, "type", response.Error.Type)
 		return "", fmt.Errorf("OpenAI API error: %s", response.Error.Message)
 	}
 
 	if len(response.Choices) == 0 {
-		fmt.Printf("OpenAI returned no choices\n")
+		slog.Error("OpenAI returned no choices")
 		return "", fmt.Errorf("no response from OpenAI")
 	}
 
-	fmt.Printf("OpenAI API call successful\n")
+	slog.Debug("OpenAI API call successful")
 	return response.Choices[0].Message.Content, nil
 }
 
@@ -532,91 +462,11 @@ func (s *SlideService) callBedrock(prompt string) (string, error) {
 		return "", fmt.Errorf("AWS credentials not configured")
 	}
 
-	// Prefer AWS SDK service if available
 	if s.bedrockSDKService != nil {
-		fmt.Printf("Using AWS SDK for Bedrock API call\n")
+		slog.Debug("using AWS SDK for Bedrock")
 		return s.bedrockSDKService.GenerateText(prompt)
 	}
 
-	// Fallback to custom implementation
-	fmt.Printf("Using custom implementation for Bedrock API call\n")
+	slog.Debug("using custom implementation for Bedrock")
 	return s.bedrockService.GenerateText(prompt)
-}
-
-// generateHTMLFromMarkdown converts markdown content to presentation-ready HTML
-// using AI-powered transformation. This replaces the frontend markdown processing
-// with server-side LLM-based HTML generation for better control over output.
-//
-// The generated HTML includes:
-//   - Proper styling for presentation display
-//   - Mermaid diagram placeholders with correct class names
-//   - Chart.js configuration placeholders
-//   - Responsive design considerations
-//
-// Parameters:
-//   - markdown: Source markdown content to convert
-//   - title: Slide title for context
-//   - language: Target language for any generated text
-//
-// Returns:
-//   - string: Generated HTML content ready for display
-//   - error: Any error that occurred during generation
-func (s *SlideService) generateHTMLFromMarkdown(markdown, title, language string) (string, error) {
-	var prompt string
-	if language == "ja" {
-		prompt = fmt.Sprintf(`
-以下のMarkdown形式のスライド内容を、プレゼンテーション用のHTMLに変換してください。
-
-Markdown内容:
-%s
-
-変換要件:
-1. プロフェッショナルな見た目のHTMLスライドを生成
-2. Mermaidコードブロック（` + "```" + `mermaid）は <div class="mermaid">内容</div> に変換
-3. Chart.js JSONコンフィグは <div class="chart-placeholder" data-chart-config='JSON'>として変換
-4. レスポンシブデザインを考慮
-5. 箇条書きは読みやすくスタイリング
-6. 強調テキストは視覚的に目立つように
-7. 完全なHTMLフラグメント（<div>で囲む）として出力
-
-HTML:`, markdown)
-	} else {
-		prompt = fmt.Sprintf(`
-Convert the following Markdown slide content to presentation-ready HTML.
-
-Markdown Content:
-%s
-
-Conversion Requirements:
-1. Generate professional-looking HTML slide
-2. Convert Mermaid code blocks (` + "```" + `mermaid) to <div class="mermaid">content</div>
-3. Convert Chart.js JSON configs to <div class="chart-placeholder" data-chart-config='JSON'>
-4. Consider responsive design
-5. Style bullet points for readability
-6. Make emphasized text visually prominent
-7. Output as complete HTML fragment (wrapped in <div>)
-
-HTML:`, markdown)
-	}
-
-	// Use the same AI provider as for content generation
-	switch s.config.AIProvider {
-	case "bedrock":
-		response, err := s.callBedrock(prompt)
-		// Auto-fallback to OpenAI if Bedrock fails
-		if err != nil {
-			fmt.Printf("Bedrock HTML generation failed: %v, falling back to OpenAI\n", err)
-			response, err = s.callOpenAI(prompt)
-			if err != nil {
-				fmt.Printf("OpenAI HTML generation fallback also failed: %v\n", err)
-				return "", err
-			}
-			fmt.Printf("OpenAI HTML generation fallback successful\n")
-		}
-		return response, err
-	case "openai":
-		return s.callOpenAI(prompt)
-	default:
-		return s.callOpenAI(prompt)
-	}
 }

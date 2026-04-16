@@ -11,21 +11,21 @@
           {{ currentSlideIndex + 1 }} / {{ totalSlides }}
         </div>
       </div>
-      
+
       <div class="controls-center">
         <button @click="previousSlide" :disabled="currentSlideIndex === 0" class="nav-btn">
           <span class="btn-icon">⬅️</span>
         </button>
-        
+
         <button @click="togglePlayPause" class="play-btn">
           <span class="btn-icon">{{ isPlaying ? '⏸️' : '▶️' }}</span>
         </button>
-        
+
         <button @click="nextSlide" :disabled="currentSlideIndex >= totalSlides - 1" class="nav-btn">
           <span class="btn-icon">➡️</span>
         </button>
       </div>
-      
+
       <div class="controls-right">
         <button @click="toggleFullscreen" class="control-btn fullscreen-btn">
           <span class="btn-icon">{{ isFullscreen ? '🪟' : '🖥️' }}</span>
@@ -40,7 +40,7 @@
       <div v-if="slidesStore.canStartPresentation" class="slide-content">
         <!-- Ready Slide Content -->
         <div v-if="slidesStore.isCurrentSlideReady" class="slide-renderer" v-html="compiledSlideHTML"></div>
-        
+
         <!-- Generating Slide State -->
         <div v-else-if="slidesStore.isCurrentSlideGenerating" class="slide-generating">
           <div class="generating-content">
@@ -49,7 +49,7 @@
             <p>しばらくお待ちください</p>
           </div>
         </div>
-        
+
         <!-- Pending Slide State -->
         <div v-else class="slide-pending">
           <div class="pending-content">
@@ -58,11 +58,11 @@
             <p>このスライドはまだ生成されていません</p>
           </div>
         </div>
-        
+
         <!-- Audio Player -->
-        <audio 
-          v-if="currentNarration && slidesStore.isCurrentSlideReady" 
-          :src="currentAudio?.audioUrl" 
+        <audio
+          v-if="currentNarration && slidesStore.isCurrentSlideReady"
+          :src="currentAudio?.audioUrl"
           ref="audioPlayer"
           @ended="onAudioEnded"
           @loadstart="onAudioLoadStart"
@@ -89,11 +89,11 @@
       <div class="nav-title">スライド一覧 ({{ slidesStore.slides.length }}/{{ slidesStore.totalSlides }})</div>
       <div class="nav-slides">
         <!-- All Slides (Completed and Pending) -->
-        <div 
-          v-for="slideIndex in slidesStore.totalSlides" 
+        <div
+          v-for="slideIndex in slidesStore.totalSlides"
           :key="'slide-' + (slideIndex - 1)"
           class="nav-slide"
-          :class="{ 
+          :class="{
             active: (slideIndex - 1) === currentSlideIndex,
             completed: getSlideStatus(slideIndex - 1) === 'completed',
             generating: getSlideStatus(slideIndex - 1) === 'generating',
@@ -157,93 +157,58 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useSlidesStore } from '@/stores/slides'
-import { slidevProcessor } from '@/services/slidev'
-import ChartComponent from '@/components/ChartComponent.vue'
-import { logMarkdown } from '@/utils/markdownLogger'
+import { useSlideNavigation } from '@/composables/useSlideNavigation'
+import { useAudioPlayer } from '@/composables/useAudioPlayer'
+import { useFullscreen } from '@/composables/useFullscreen'
+import { useSlideRenderer } from '@/composables/useSlideRenderer'
 import type { SlideTheme } from '@/types/slides'
 
 const router = useRouter()
 const route = useRoute()
 const slidesStore = useSlidesStore()
 
-// Props
 const slideId = computed(() => route.params.slideId as string)
 
-// Refs
+// Template refs
 const slideContainer = ref<HTMLElement>()
 const audioPlayer = ref<HTMLAudioElement>()
 
-// State
-const isFullscreen = ref(false)
-const isPlaying = ref(false)
+// UI-only state
 const isSlideNavCollapsed = ref(false)
 const showHelp = ref(false)
-const compiledSlideHTML = ref('')
 
-// Computed
-const currentSlideIndex = computed(() => slidesStore.currentSlideIndex)
-const totalSlides = computed(() => slidesStore.totalSlides)
-const currentSlide = computed(() => slidesStore.currentSlide)
-const currentNarration = computed(() => 
-  currentSlide.value ? slidesStore.getNarration(currentSlide.value.index) : undefined
+// Composables
+const {
+  currentSlideIndex,
+  totalSlides,
+  currentSlide,
+  currentNarration,
+  currentAudio,
+  previousSlide,
+  nextSlide,
+  goToSlide,
+} = useSlideNavigation(slidesStore)
+
+const { isFullscreen, toggleFullscreen } = useFullscreen(slideContainer)
+
+const { isPlaying, togglePlayPause, onAudioEnded, onAudioLoadStart, onAudioCanPlay, resetAudio } =
+  useAudioPlayer(audioPlayer, currentSlideIndex, totalSlides, nextSlide)
+
+const { compiledSlideHTML, compileCurrentSlide } = useSlideRenderer(
+  currentSlide,
+  computed(() => slidesStore.isCurrentSlideReady),
+  currentSlideIndex
 )
-const currentAudio = computed(() => 
-  currentSlide.value ? slidesStore.getAudio(currentSlide.value.index) : undefined
-)
 
-// Methods
-const goHome = () => {
-  router.push('/')
-}
+// Navigation helpers
+const goHome = () => router.push('/')
+const toggleSlideNav = () => { isSlideNavCollapsed.value = !isSlideNavCollapsed.value }
 
-const previousSlide = () => {
-  if (currentSlideIndex.value > 0) {
-    slidesStore.previousSlide()
-  }
-}
-
-const nextSlide = () => {
-  if (currentSlideIndex.value < totalSlides.value - 1) {
-    slidesStore.nextSlide()
-  }
-}
-
-const goToSlide = (index: number) => {
-  slidesStore.goToSlide(index)
-}
-
-const togglePlayPause = () => {
-  isPlaying.value = !isPlaying.value
-  
-  if (audioPlayer.value) {
-    if (isPlaying.value) {
-      audioPlayer.value.play()
-    } else {
-      audioPlayer.value.pause()
-    }
-  }
-}
-
-const toggleSlideNav = () => {
-  isSlideNavCollapsed.value = !isSlideNavCollapsed.value
-}
-
-const toggleFullscreen = () => {
-  if (!document.fullscreenElement) {
-    slideContainer.value?.requestFullscreen()
-    isFullscreen.value = true
-  } else {
-    document.exitFullscreen()
-    isFullscreen.value = false
-  }
-}
-
-const hasAudio = (slideIndex: number): boolean => {
-  return !!slidesStore.getAudio(slideIndex) // Both slideIndex and audio are now 0-based
-}
+// Slide metadata helpers
+const hasAudio = (slideIndex: number): boolean => !!slidesStore.getAudio(slideIndex)
 
 const getThemeLabel = (theme: SlideTheme): string => {
   const themeLabels: Record<SlideTheme, string> = {
@@ -256,7 +221,7 @@ const getThemeLabel = (theme: SlideTheme): string => {
     'codebase_activity': 'コードベース活動',
     'notifications': '通知管理',
     'predictive_analysis': '予測分析',
-    'summary_plan': '総括と計画'
+    'summary_plan': '総括と計画',
   }
   return themeLabels[theme] || theme
 }
@@ -269,204 +234,22 @@ const getSlideStatus = (slideIndex: number): 'pending' | 'generating' | 'complet
 }
 
 const getSlideTitle = (slideIndex: number): string => {
-  // If slide is completed, use actual title
   if (slideIndex < slidesStore.slides.length) {
     return slidesStore.slides[slideIndex].title
   }
-  
-  // For pending/generating slides, show appropriate status
   const status = getSlideStatus(slideIndex)
-  if (status === 'generating') {
-    return 'スライド生成中...'
-  }
-  return 'スライド準備中...'
+  return status === 'generating' ? 'スライド生成中...' : 'スライド準備中...'
 }
 
 const getSlideThemeLabel = (slideIndex: number): string => {
-  // If slide is completed, use actual theme
   if (slideIndex < slidesStore.slides.length) {
     return getThemeLabel(slidesStore.slides[slideIndex].theme)
   }
-  
-  // For pending/generating slides, use expected theme if available
   if (slideIndex < slidesStore.expectedThemes.length) {
-    const expectedTheme = slidesStore.expectedThemes[slideIndex]
-    return getThemeLabel(expectedTheme)
+    return getThemeLabel(slidesStore.expectedThemes[slideIndex])
   }
-  
-  // Fallback for unknown themes
   const status = getSlideStatus(slideIndex)
-  if (status === 'generating') {
-    return '生成中'
-  }
-  return '準備中'
-}
-
-// Chart.js and Mermaid processing is now handled by slidevProcessor
-const compileCurrentSlide = async () => {
-  // Only compile if the current slide is ready
-  if (!currentSlide.value || !slidesStore.isCurrentSlideReady) {
-    compiledSlideHTML.value = ''
-    return
-  }
-  
-  try {
-    // Log markdown content for debugging
-    if (currentSlide.value.markdown) {
-      logMarkdown(currentSlide.value.markdown, currentSlideIndex.value, currentSlide.value.title)
-    }
-    
-    // Priority 1: Use pre-generated HTML from backend
-    if (currentSlide.value.html && currentSlide.value.html.trim() !== '') {
-      console.log('Using pre-generated HTML from backend')
-      compiledSlideHTML.value = currentSlide.value.html
-    } 
-    // Priority 2: Process markdown with Slidev
-    else if (currentSlide.value.markdown && currentSlide.value.markdown.trim() !== '') {
-      console.log('Processing markdown with Slidev:', currentSlide.value.title)
-      
-      // Process markdown with Slidev (includes Mermaid and Chart processing)
-      const processedSlideData = await slidevProcessor.processSlide(currentSlide.value)
-      
-      // Convert to HTML using native Slidev processing
-      compiledSlideHTML.value = slidevProcessor.convertToHTML(processedSlideData)
-      
-      console.log('Slidev processed slide data:', processedSlideData)
-    } 
-    // Fallback: Show error message
-    else {
-      compiledSlideHTML.value = '<p>スライド内容が見つかりません</p>'
-    }
-    
-    // Initialize components after DOM update
-    await nextTick()
-    await initializeMermaidDiagrams()
-    initializeChartComponents()
-    
-  } catch (error) {
-    console.error('Failed to compile slide:', error)
-    compiledSlideHTML.value = '<p>スライドの表示に失敗しました</p>'
-  }
-}
-
-// Mermaid initialization
-const initializeMermaidDiagrams = async () => {
-  if (!window.mermaid) {
-    console.warn('Mermaid not available')
-    return
-  }
-
-  try {
-    // Find all mermaid elements (Slidev parser outputs <div class="mermaid">)
-    const mermaidElements = document.querySelectorAll('.slide-renderer .mermaid')
-    
-    console.log('Found Mermaid elements:', mermaidElements.length)
-    
-    if (mermaidElements.length === 0) {
-      return
-    }
-    
-    // Assign IDs to elements for Mermaid processing
-    mermaidElements.forEach((element, index) => {
-      if (!element.id) {
-        element.id = `mermaid-${Date.now()}-${index}`
-      }
-    })
-    
-    // Process all mermaid elements
-    console.log('Running Mermaid on', mermaidElements.length, 'elements')
-    await window.mermaid.run()
-    console.log('Mermaid rendering completed successfully')
-  } catch (mermaidError) {
-    console.warn('Mermaid rendering failed:', mermaidError)
-    
-    // Log the problematic Mermaid content for debugging
-    const failedElements = document.querySelectorAll('.slide-renderer .mermaid')
-    failedElements.forEach((element, index) => {
-      const mermaidContent = element.textContent || element.innerHTML
-      console.error(`Failed Mermaid diagram ${index + 1}:`, mermaidContent)
-      element.innerHTML = '<div class="mermaid-error">📊 図表の表示に失敗しました</div>'
-      element.classList.remove('mermaid')
-    })
-    
-    // Also log the original markdown if available
-    if (currentSlide.value?.markdown) {
-      console.error('Original slide markdown:', currentSlide.value.markdown)
-    }
-  }
-}
-
-// Chart.js initialization
-const initializeChartComponents = async () => {
-  await nextTick()
-  const chartPlaceholders = document.querySelectorAll('.chart-placeholder')
-  
-  chartPlaceholders.forEach(async (placeholder) => {
-    try {
-      const configStr = placeholder.getAttribute('data-chart-config')
-      const chartId = placeholder.getAttribute('data-chart-id')
-      
-      if (configStr && chartId) {
-        const chartConfig = JSON.parse(configStr)
-        
-        // Create canvas element
-        const canvas = document.createElement('canvas')
-        canvas.id = chartId
-        canvas.width = 400
-        canvas.height = 300
-        
-        // Replace placeholder with canvas
-        placeholder.appendChild(canvas)
-        
-        // Import Chart.js dynamically and create chart
-        const { Chart, registerables } = await import('chart.js')
-        Chart.register(...registerables)
-        
-        new Chart(canvas, {
-          ...chartConfig,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: {
-                position: 'top' as const,
-              },
-              title: {
-                display: !!chartConfig.options?.plugins?.title?.text,
-                text: chartConfig.options?.plugins?.title?.text || ''
-              }
-            },
-            ...chartConfig.options
-          }
-        })
-      }
-    } catch (error) {
-      console.error('Failed to create chart:', error)
-      placeholder.innerHTML = '<p>チャートの表示に失敗しました</p>'
-    }
-  })
-}
-
-// Audio event handlers
-const onAudioEnded = () => {
-  isPlaying.value = false
-  // Auto advance to next slide after audio ends
-  if (currentSlideIndex.value < totalSlides.value - 1) {
-    setTimeout(() => {
-      nextSlide()
-    }, 1000)
-  }
-}
-
-const onAudioLoadStart = () => {
-  console.log('Audio loading started')
-}
-
-const onAudioCanPlay = () => {
-  console.log('Audio can play')
-  if (isPlaying.value) {
-    audioPlayer.value?.play()
-  }
+  return status === 'generating' ? '生成中' : '準備中'
 }
 
 // Keyboard shortcuts
@@ -513,13 +296,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 // Watchers
 watch(currentSlide, () => {
   compileCurrentSlide()
-  
-  // Reset audio playback
-  if (audioPlayer.value) {
-    audioPlayer.value.pause()
-    audioPlayer.value.currentTime = 0
-  }
-  isPlaying.value = false
+  resetAudio()
 }, { immediate: true })
 
 watch(isPlaying, (playing) => {
@@ -535,40 +312,24 @@ onMounted(async () => {
     const script = document.createElement('script')
     script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js'
     script.onload = () => {
-      window.mermaid.initialize({ 
+      window.mermaid.initialize({
         theme: 'default',
-        themeVariables: {
-          primaryColor: '#667eea'
-        }
+        themeVariables: { primaryColor: '#667eea' },
       })
     }
     document.head.appendChild(script)
   }
 
-  // Add keyboard event listeners
   document.addEventListener('keydown', handleKeydown)
-  
-  // Handle fullscreen change
-  document.addEventListener('fullscreenchange', () => {
-    isFullscreen.value = !!document.fullscreenElement
-  })
 
   // Try to restore slides data from server if slideId exists
   if (slideId.value && !slidesStore.hasSlides) {
-    console.log('Attempting to restore slides data for slideId:', slideId.value)
     const loaded = await slidesStore.loadSlidesFromServer(slideId.value)
-    if (loaded) {
-      console.log('Successfully restored slides data from server')
-      // If slides are still generating, reconnect WebSocket
-      if (slidesStore.isGenerating) {
-        slidesStore.connectWebSocket(slideId.value)
-      }
-    } else {
-      console.log('No slides data found on server for slideId:', slideId.value)
+    if (loaded && slidesStore.isGenerating) {
+      slidesStore.connectWebSocket(slideId.value)
     }
   }
 
-  // Initialize slide compilation
   compileCurrentSlide()
 })
 
@@ -579,7 +340,6 @@ onUnmounted(() => {
   }
 })
 
-// Declare global mermaid
 declare global {
   interface Window {
     mermaid: any
@@ -1171,33 +931,33 @@ declare global {
     position: relative;
     z-index: 100;
   }
-  
+
   .controls-left {
     order: 1;
     justify-content: center;
   }
-  
+
   .controls-center {
     order: 2;
     justify-content: center;
   }
-  
+
   .controls-right {
     order: 3;
     justify-content: center;
   }
-  
+
   .controls-left, .controls-center, .controls-right {
     gap: 0.5rem;
     flex-wrap: wrap;
   }
-  
+
   .control-btn, .nav-btn, .play-btn {
     padding: 0.4rem 0.6rem;
     font-size: 0.85rem;
     min-width: auto;
   }
-  
+
   .fullscreen-btn {
     top: 10px;
     right: 10px;
@@ -1206,47 +966,47 @@ declare global {
     font-size: 0.8rem;
     z-index: 350;
   }
-  
+
   .slide-renderer {
     padding: 1rem;
     min-height: 300px;
   }
-  
+
   .slide-content {
     padding: 1rem;
   }
-  
+
   .nav-slide {
     padding: 0.6rem;
     min-height: 45px;
   }
-  
+
   .nav-slide-number {
     width: 20px;
     height: 20px;
     font-size: 0.75rem;
   }
-  
+
   .nav-slide-title {
     font-size: 0.75rem;
     line-height: 1.2;
   }
-  
+
   .nav-slide-theme {
     font-size: 0.65rem;
   }
-  
+
   .slide-indicators {
     top: 0.6rem;
     right: 0.6rem;
   }
-  
+
   .audio-indicator {
     font-size: 0.65rem;
     width: 16px;
     height: 16px;
   }
-  
+
   .slide-status-indicator {
     font-size: 0.65rem;
     width: 16px;

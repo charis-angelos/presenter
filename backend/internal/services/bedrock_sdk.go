@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"intelligent-presenter-backend/pkg/config"
 
@@ -63,7 +64,7 @@ func (s *BedrockSDKService) GenerateText(prompt string) (string, error) {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	fmt.Printf("Making Bedrock API call using AWS SDK to model: %s\n", s.config.BedrockModelID)
+	slog.Debug("making Bedrock API call via AWS SDK", "model", s.config.BedrockModelID)
 
 	// Call Bedrock using AWS SDK
 	output, err := s.client.InvokeModel(context.TODO(), &bedrockruntime.InvokeModelInput{
@@ -74,7 +75,7 @@ func (s *BedrockSDKService) GenerateText(prompt string) (string, error) {
 	})
 
 	if err != nil {
-		fmt.Printf("Bedrock SDK API call error: %v\n", err)
+		slog.Error("Bedrock SDK API call error", "error", err)
 		return "", fmt.Errorf("failed to call Bedrock API: %w", err)
 	}
 
@@ -88,7 +89,7 @@ func (s *BedrockSDKService) GenerateText(prompt string) (string, error) {
 		return "", fmt.Errorf("no content in response")
 	}
 
-	fmt.Printf("Bedrock SDK API call successful\n")
+	slog.Debug("Bedrock SDK API call successful")
 	return response.Content[0].Text, nil
 }
 
