@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"intelligent-presenter-backend/pkg/config"
@@ -81,11 +83,7 @@ func (s *BedrockService) GenerateText(prompt string) (string, error) {
 }
 
 func (s *BedrockService) isClaudeMessagesModel() bool {
-	modelID := s.config.BedrockModelID
-	return modelID == "anthropic.claude-3-haiku-20240307-v1:0" ||
-		   modelID == "anthropic.claude-3-sonnet-20240229-v1:0" ||
-		   modelID == "anthropic.claude-3-opus-20240229-v1:0" ||
-		   modelID == "anthropic.claude-3-5-sonnet-20240620-v1:0"
+	return strings.Contains(s.config.BedrockModelID, "claude-3")
 }
 
 func (s *BedrockService) generateWithMessages(prompt string) (string, error) {
@@ -172,27 +170,27 @@ func (s *BedrockService) callBedrock(jsonData []byte) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	fmt.Printf("Making Bedrock API call to model: %s\n", s.config.BedrockModelID)
-	
+	slog.Debug("making Bedrock API call", "model", s.config.BedrockModelID)
+
 	resp, err := s.client.Do(req)
 	if err != nil {
-		fmt.Printf("Bedrock API call error: %v\n", err)
+		slog.Error("Bedrock API call error", "error", err)
 		return nil, fmt.Errorf("failed to call Bedrock API: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		fmt.Printf("Bedrock API error - Status: %d\n", resp.StatusCode)
+		slog.Error("Bedrock API error", "status", resp.StatusCode)
 		var errorBytes bytes.Buffer
 		errorBytes.ReadFrom(resp.Body)
-		fmt.Printf("Bedrock error response: %s\n", errorBytes.String())
+		slog.Debug("Bedrock error response body", "body", errorBytes.String())
 		return nil, fmt.Errorf("Bedrock API returned status %d", resp.StatusCode)
 	}
 
 	var responseBody bytes.Buffer
 	responseBody.ReadFrom(resp.Body)
-	
-	fmt.Printf("Bedrock API call successful\n")
+
+	slog.Debug("Bedrock API call successful")
 	return responseBody.Bytes(), nil
 }
 

@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"fmt"
+	"log/slog"
 	"net/http"
 
 	"intelligent-presenter-backend/internal/services"
@@ -146,51 +146,51 @@ func (h *MCPHandler) GetAudioFile(c *gin.Context) {
 
 	// Proxy request to Speech MCP server
 	speechURL := h.config.MCPSpeechURL + "/cache/" + filename
-	
-	fmt.Printf("GetAudioFile: filename=%s, speechURL=%s\n", filename, speechURL)
-	
+
+	slog.Debug("proxying audio file request", "filename", filename, "url", speechURL)
+
 	// Create HTTP client
 	client := &http.Client{}
-	
+
 	// Create request to Speech MCP server
 	req, err := http.NewRequest("GET", speechURL, nil)
 	if err != nil {
-		fmt.Printf("GetAudioFile: Failed to create request: %v\n", err)
+		slog.Error("failed to create audio file request", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to create request",
 		})
 		return
 	}
-	
+
 	// Forward the request
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("GetAudioFile: Request failed: %v\n", err)
+		slog.Error("audio file request failed", "error", err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": "Audio file not found",
 		})
 		return
 	}
 	defer resp.Body.Close()
-	
-	fmt.Printf("GetAudioFile: Speech server response status: %d\n", resp.StatusCode)
-	
+
+	slog.Debug("speech server response", "status", resp.StatusCode)
+
 	// Forward status code
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("GetAudioFile: Speech server returned non-200: %d\n", resp.StatusCode)
+		slog.Error("speech server returned non-200", "status", resp.StatusCode)
 		c.JSON(resp.StatusCode, gin.H{
 			"error": "Audio file not found",
 		})
 		return
 	}
-	
+
 	// Set appropriate headers for audio streaming
 	c.Header("Content-Type", "audio/wav")
 	c.Header("Cache-Control", "public, max-age=3600")
 	c.Header("Content-Length", resp.Header.Get("Content-Length"))
-	
-	fmt.Printf("GetAudioFile: Streaming audio file, content-length: %s\n", resp.Header.Get("Content-Length"))
-	
+
+	slog.Debug("streaming audio file", "content_length", resp.Header.Get("Content-Length"))
+
 	// Stream the audio file content
 	c.DataFromReader(http.StatusOK, resp.ContentLength, "audio/wav", resp.Body, nil)
 }

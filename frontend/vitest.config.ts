@@ -1,28 +1,22 @@
-/// <reference types="vitest" />
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
+import { fileURLToPath, URL } from 'node:url'
 
+/**
+ * Vitest configuration.
+ * Only collects test files under tests/ — the e2e/ directory is
+ * reserved for Playwright specs, run via `npm run test:e2e`.
+ */
 export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
   test: {
-    globals: true,
+    include: ['tests/**/*.{test,spec}.ts'],
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'html', 'json'],
-      exclude: [
-        'node_modules/',
-        'tests/',
-        '**/*.d.ts',
-        'dist/',
-      ],
-    },
   },
 })

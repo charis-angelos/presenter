@@ -47,6 +47,25 @@ type Config struct {
     CORSOrigins []string // List of allowed origins for CORS requests
 }
 
+// Validate returns a list of missing required configuration field names.
+// An empty slice means the configuration is complete.
+func (c *Config) Validate() []string {
+	var missing []string
+	if c.BacklogClientID == "" {
+		missing = append(missing, "BACKLOG_CLIENT_ID")
+	}
+	if c.BacklogClientSecret == "" {
+		missing = append(missing, "BACKLOG_CLIENT_SECRET")
+	}
+	if c.JWTSecret == "" {
+		missing = append(missing, "JWT_SECRET")
+	}
+	if c.OAuthRedirectURL == "" {
+		missing = append(missing, "OAUTH_REDIRECT_URL")
+	}
+	return missing
+}
+
 // Load creates a new Config instance by reading environment variables.
 // It provides sensible defaults for development environments and ensures
 // all required configuration values are properly initialized.

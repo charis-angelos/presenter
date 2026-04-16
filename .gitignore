@@ -6,6 +6,7 @@ external-deps/
 dist/
 build/
 *.log
+*.tsbuildinfo
 
 # Environment variables
 .env
